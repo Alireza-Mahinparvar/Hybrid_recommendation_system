@@ -21,7 +21,6 @@ class CollaborativeFilteringModule:
                         matrix[pair[0]] = {}
                     if pair[1] not in matrix:
                         matrix[pair[1]] = {}
-                    print(pair)
                     matrix[pair[0]][pair[1]] = 1
                     matrix[pair[1]][pair[0]] = 1
         return matrix
@@ -33,7 +32,7 @@ class CollaborativeFilteringModule:
         :return: cooccurring matrix where matrix[i][j]=1 if they cooccurring
         """
         matrix = {}
-        # look at all combinations f papers to see if they cite teh same paper (cooccurring0
+        # look at all combinations f papers to see if they cite the same paper (cooccurring)
         for pair in combinations(list(range(len(refs))), 2):
             if 'references' in refs[pair[0]] and 'references' in refs[pair[1]]:
                 if any(i in refs[pair[0]]['references'] for i in refs[pair[1]]['references']):
@@ -41,7 +40,6 @@ class CollaborativeFilteringModule:
                         matrix[pair[0]] = {}
                     if pair[1] not in matrix:
                         matrix[pair[1]] = {}
-                    print(pair)
                     matrix[pair[0]][pair[1]] = 1
                     matrix[pair[1]][pair[0]] = 1
         return matrix
@@ -53,8 +51,8 @@ class CollaborativeFilteringModule:
         :param paper2: index of paper 2
         :return: cooccurred score
         """
-        row1 = self.cooccurred[paper1]
-        row2 = self.cooccurred[paper2]
+        row1 = self.cooccurred.get(paper1, {})
+        row2 = self.cooccurred.get(paper2, {})
         j11 = 0
         j10 = 0
         for i in row1:
@@ -74,8 +72,8 @@ class CollaborativeFilteringModule:
         :param paper2: index of paper 2
         :return: cooccurring score
         """
-        row1 = self.cooccurring[paper1]
-        row2 = self.cooccurring[paper2]
+        row1 = self.cooccurring.get(paper1, {})
+        row2 = self.cooccurring.get(paper2, {})
         j11 = 0
         j10 = 0
         for i in row1:
