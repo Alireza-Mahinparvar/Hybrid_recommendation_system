@@ -16,36 +16,25 @@ class ContentBasedModule:
         """
         f_dict = {}
         count = 0
-        if 'title' in paper:
-            string = paper['title']
-            # Replace all single characters with a space
-            string = re.sub(r'\b[a-zA-Z]\b', ' ', string)
-            # Replace all double spaces with one space
-            string = re.sub(' +', ' ', string)
-            # Remove leading and trailing spaces
-            string = string.strip().lower()
-            words = list(string.split(" "))
-            for word in words:
-                count += 1
-                if word not in f_dict:
-                    f_dict[word] = 1
-                elif word in f_dict:
-                    f_dict[word] += 1
-        if 'abstract' in paper:
-            string = paper['abstract']
-            # Replace all single characters with a space
-            string = re.sub(r'\b[a-zA-Z]\b', ' ', string)
-            # Replace all double spaces with one space
-            string = re.sub(' +', ' ', string)
-            # Remove leading and trailing spaces
-            string = string.strip().lower()
-            words = list(string.split(" "))
-            for word in words:
-                count += 1
-                if word not in f_dict:
-                    f_dict[word] = 1
-                elif word in f_dict:
-                    f_dict[word] += 1
+        fields = ['title', 'abstract', 'keywords']
+        exclude = ['a', 'an', 'and', 'but', 'if', 'the', 'with']
+        for field in fields:
+            if field in paper:
+                string = paper[field]
+                # Replace all single characters with a space
+                string = re.sub(r'\b[a-zA-Z]\b', ' ', string)
+                # Replace all double spaces with one space
+                string = re.sub(' +', ' ', string)
+                # Remove leading and trailing spaces
+                string = string.strip().lower()
+                words = list(string.split(" "))
+                for word in words:
+                    if word not in exclude:
+                        count += 1
+                        if word not in f_dict:
+                            f_dict[word] = 1
+                        elif word in f_dict:
+                            f_dict[word] += 1
         for word in f_dict:
             f_dict[word] = f_dict[word] / count
         return f_dict
