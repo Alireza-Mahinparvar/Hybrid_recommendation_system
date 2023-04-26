@@ -36,6 +36,8 @@ class Crawler:
                         if paper['id'] not in new_ids:
                             new_ids[paper['id']] = len(subset)
                             subset.append(paper)
+                        if paper not in candidates:
+                            candidates.append(paper)
 
         # change ids for ease
         for paper in subset:

@@ -38,7 +38,6 @@ class Recommender:
 if __name__ == '__main__':
     import json
     import pprint
-    from collaborative_filtering import CollaborativeFilteringModule
 
     print('opening')
     f = open('aminerv1.json')
