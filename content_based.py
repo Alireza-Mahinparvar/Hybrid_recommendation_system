@@ -1,5 +1,11 @@
 import re
 import math
+import nltk
+
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+
+stop_words = set(stopwords.words('english'))
 
 class ContentBasedModule:
     def __init__(self):
@@ -17,7 +23,6 @@ class ContentBasedModule:
         f_dict = {}
         count = 0
         fields = ['title', 'abstract', 'keywords']
-        exclude = ['a', 'an', 'and', 'but', 'if', 'the', 'with']
         for field in fields:
             if field in paper:
                 string = paper[field]
@@ -29,7 +34,7 @@ class ContentBasedModule:
                 string = string.strip().lower()
                 words = list(string.split(" "))
                 for word in words:
-                    if word not in exclude:
+                    if word not in stop_words:
                         count += 1
                         if word not in f_dict:
                             f_dict[word] = 1
