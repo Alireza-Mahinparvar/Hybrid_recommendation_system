@@ -234,5 +234,33 @@ print(f"Precision: {precision}")
 print(f"Recall: {recall}")
 print(f"F1-score: {f1_score}")
 print(f"NDCG: {ndcg}")
+
+def compute_graph_precision(recommended_papers, citation_network, paper_of_interest):
+    relevant_neighbors = set(citation_network.neighbors(paper_of_interest))
+    recommended_neighbors = set(paper['paper'] for paper in recommended_papers)
     
+    if len(recommended_neighbors) == 0:
+        return 0
+    else:
+        precision = len(recommended_neighbors.intersection(relevant_neighbors)) / len(recommended_neighbors)
+        return precision
+
+def compute_graph_recall(recommended_papers, citation_network, paper_of_interest):
+    relevant_neighbors = set(citation_network.neighbors(paper_of_interest))
+    recommended_neighbors = set(paper['paper'] for paper in recommended_papers)
+    
+    if len(relevant_neighbors) == 0:
+        return 0
+    else:
+        recall = len(recommended_neighbors.intersection(relevant_neighbors)) / len(relevant_neighbors)
+        return recall
+
+
+recommended_papers = top_papers  # Replace with your recommended papers
+graph_precision = compute_graph_precision(recommended_papers, citation_network, paper_of_interest)
+graph_recall = compute_graph_recall(recommended_papers, citation_network, paper_of_interest)
+
+print(f"Graph Precision: {graph_precision}")
+print(f"Graph Recall: {graph_recall}")
+
 
