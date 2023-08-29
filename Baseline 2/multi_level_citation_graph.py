@@ -211,3 +211,28 @@ for rank, paper in enumerate(top_papers, start=1):
     print(f"Rank {rank} - Paper ID: {id}, Title: {title}")
 
 
+def evaluate_top_n_recommendations(top_papers, relevant_papers):
+    # Assuming relevant_papers contains the ground truth relevant papers
+    top_papers_ids = [paper['paper'] for paper in top_papers]
+    relevant_count = len(set(top_papers_ids).intersection(set(relevant_papers)))
+
+    precision = relevant_count / len(top_papers_ids)
+    recall = relevant_count / len(relevant_papers)
+    f1_score = 2 * (precision * recall) / (precision + recall)
+
+    # NDCG calculation using sklearn's ndcg_score
+    relevance_scores = [1 if paper['paper'] in relevant_papers else 0 for paper in top_papers]
+    ideal_relevance_scores = [1] * relevant_count + [0] * (len(top_papers) - relevant_count)
+    ndcg = ndcg_score([ideal_relevance_scores], [relevance_scores])
+
+    return precision, recall, f1_score, ndcg
+
+# Assuming relevant_papers contains the ground truth relevant papers' IDs
+precision, recall, f1_score, ndcg = evaluate_top_n_recommendations(top_papers, relevant_papers)
+
+print(f"Precision: {precision}")
+print(f"Recall: {recall}")
+print(f"F1-score: {f1_score}")
+print(f"NDCG: {ndcg}")
+    
+
