@@ -1,19 +1,19 @@
 from itertools import combinations
 
 class CollaborativeFilteringModule:
-    def __init__(self, refs: list = []):
+    def __init__(self, refs: dict = {}):
         self.refs = refs
         self.cooccurred = self.generate_cooccurred_matrix(refs)
         self.cooccurring = self.generate_cooccurring_matrix(refs)
 
-    def generate_cooccurred_matrix(self, refs: list) -> dict:
+    def generate_cooccurred_matrix(self, refs: dict) -> dict:
         """
         Generate cooccurred matrix for given reference relations
         :param refs: list of dictionaries that contain 'references' key
         :return: cooccurred matrix where matrix[i][j]=1 if they cooccurred
         """
         matrix = {}
-        for paper in range(len(refs)):
+        for paper in refs:
             if 'references' in refs[paper]:
                 # look at each pair of referenced papers, papers cooccurred if they are cited by same paper
                 for pair in combinations(refs[paper]['references'], 2):
@@ -25,7 +25,7 @@ class CollaborativeFilteringModule:
                     matrix[pair[1]][pair[0]] = 1
         return matrix
 
-    def generate_cooccurring_matrix(self, refs: list) -> dict:
+    def generate_cooccurring_matrix(self, refs: dict) -> dict:
         """
         Generate cooccurring matrix for given reference relations
         :param refs: list of dictionaries that contain 'references' key
@@ -33,7 +33,7 @@ class CollaborativeFilteringModule:
         """
         matrix = {}
         # look at all combinations f papers to see if they cite the same paper (cooccurring)
-        for pair in combinations(list(range(len(refs))), 2):
+        for pair in combinations(list(refs.keys()), 2):
             if 'references' in refs[pair[0]] and 'references' in refs[pair[1]]:
                 if any(i in refs[pair[0]]['references'] for i in refs[pair[1]]['references']):
                     if pair[0] not in matrix:
@@ -44,7 +44,7 @@ class CollaborativeFilteringModule:
                     matrix[pair[1]][pair[0]] = 1
         return matrix
 
-    def get_cooccurred_score(self, paper1: int, paper2: int) -> float:
+    def get_cooccurred_score(self, paper1: str, paper2: str) -> float:
         """
         Calculates cooccurred score
         :param paper1: index of paper 1
@@ -65,7 +65,7 @@ class CollaborativeFilteringModule:
         total = (j11 + j10)
         return j11 / total if total > 0 else 0
 
-    def get_cooccurring_score(self, paper1: int, paper2: int) -> float:
+    def get_cooccurring_score(self, paper1: str, paper2: str) -> float:
         """
         Calculates cooccurring score
         :param paper1: index of paper 1
@@ -91,16 +91,30 @@ class CollaborativeFilteringModule:
 
 if __name__ == '__main__':
     import json
+    import pymongo
+    from Baseline1.crawler import Crawler
 
-    print('opening')
-    f = open('aminerv1.json')
-    data = json.load(f)
-    f.close()
-    print('closed')
+    # Connect to MongoDB
+    client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
+    db = client["Aminer"]  # Replace with your database name
+    collection = db["papers"]  # Replace with your collection name
 
-    mod = CollaborativeFilteringModule(data)
-    cooccurred = mod.get_cooccurred_score(357875, 214023)
-    cooccurring = mod.get_cooccurring_score(322302, 17)
+    # Query the MongoDB collection to retrieve the data
+    data = list(collection.find())
+
+    # Create a dictionary to store the papers indexed by their ids
+    papers_dict = {paper["id"]: paper for paper in data}
+
+    print("crawling")
+    c = Crawler(papers_dict)
+    subset, candidates = c.get_subset("289052")
+
+    print("generating matrices")
+    mod = CollaborativeFilteringModule(subset)
+
+    print("gettting scores")
+    cooccurred = mod.get_cooccurred_score("288366", "288611")
+    cooccurring = mod.get_cooccurring_score("1834", "9518")
     print(cooccurred)
     print(cooccurring)
 

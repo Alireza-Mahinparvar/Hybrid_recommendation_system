@@ -22,7 +22,7 @@ class ContentBasedModule:
         """
         f_dict = {}
         count = 0
-        fields = ['title', 'abstract', 'keywords']
+        fields = ['paper title', 'abstract', 'keywords']
         for field in fields:
             if field in paper:
                 string = paper[field]
@@ -69,16 +69,22 @@ class ContentBasedModule:
 if __name__ == '__main__':
     import json
     import pprint
+    import pymongo
 
-    print('opening')
-    f = open('aminerv1.json')
-    data = json.load(f)
-    f.close()
-    print('closed')
+    # Connect to MongoDB
+    client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
+    db = client["Aminer"]  # Replace with your database name
+    collection = db["papers"]  # Replace with your collection name
+
+    # Query the MongoDB collection to retrieve the data
+    data = list(collection.find())
+
+    # Create a dictionary to store the papers indexed by their ids
+    papers_dict = {paper["id"]: paper for paper in data}
 
     mod = ContentBasedModule()
-    f1 = mod.term_freq(data[0])
-    f2 = mod.term_freq(data[13321])
+    f1 = mod.term_freq(papers_dict["991585"])
+    f2 = mod.term_freq(papers_dict["289052"])
     pprint.pprint(f1)
     pprint.pprint(f2)
     print(mod.cosine_simi(f1, f2))
