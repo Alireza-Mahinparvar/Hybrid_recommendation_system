@@ -118,7 +118,7 @@ def candidate_score(G, paper_of_interest, paper):
     return (bc + cc) / distance
 
 # Example usage
-paper = papers_dict['321']  # Replace 110 with the id of the paper you want to start with
+paper = papers_dict['322302']  # Replace 110 with the id of the paper you want to start with
 citation_network = build_citation_network(paper)
 paper_of_interest = paper["id"]
 # print(citation_network.nodes)
