@@ -37,7 +37,7 @@ class Recommender:
             sorted_candidates.append(candidates[candidate])
 
         sorted_candidates = sorted(sorted_candidates, key=lambda x: x['score'], reverse=True)
-        return sorted_candidates[:min(5, len(candidates))]
+        return sorted_candidates[:min(10, len(candidates))]
 
 if __name__ == '__main__':
     import json
@@ -56,4 +56,4 @@ if __name__ == '__main__':
 
     system = Recommender(papers_dict)
 
-    pprint.pprint(system.recommend("289052"))
+    pprint.pprint(system.recommend("322302"))
