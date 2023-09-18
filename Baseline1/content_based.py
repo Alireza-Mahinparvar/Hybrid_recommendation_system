@@ -74,7 +74,7 @@ if __name__ == '__main__':
     # Connect to MongoDB
     client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
     db = client["Aminer"]  # Replace with your database name
-    collection = db["papers"]  # Replace with your collection name
+    collection = db["Aminer_full_data"]  # Replace with your collection name
 
     # Query the MongoDB collection to retrieve the data
     data = list(collection.find())
