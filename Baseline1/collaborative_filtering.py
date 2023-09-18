@@ -92,12 +92,12 @@ class CollaborativeFilteringModule:
 if __name__ == '__main__':
     import json
     import pymongo
-    from Baseline1.crawler import Crawler
+    from crawler import Crawler
 
     # Connect to MongoDB
     client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
     db = client["Aminer"]  # Replace with your database name
-    collection = db["papers"]  # Replace with your collection name
+    collection = db["Aminer_full_data"]  # Replace with your collection name
 
     # Query the MongoDB collection to retrieve the data
     data = list(collection.find())
@@ -112,10 +112,10 @@ if __name__ == '__main__':
     print("generating matrices")
     mod = CollaborativeFilteringModule(subset)
 
+
     print("gettting scores")
     cooccurred = mod.get_cooccurred_score("288366", "288611")
     cooccurring = mod.get_cooccurring_score("1834", "9518")
     print(cooccurred)
     print(cooccurring)
-
 
