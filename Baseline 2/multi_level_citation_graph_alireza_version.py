@@ -216,8 +216,13 @@ for rank, paper in enumerate(top_papers, start=1):
         title = "Paper information not found"
     print(f"Rank {rank} - Paper ID: {id}, Title: {title}")
 
-
-
+"""
+User Studies Function: This function replicates a user study in which consumers are given a list of suggested scholarly articles and asked 
+to comment on the applicability of each article. It cycles through the suggested papers, showing the users their names and abstracts while 
+also gathering user feedback. Statistics on the number of pertinent and irrelevant papers are computed based on the feedback. Additionally, 
+precision, recall, and the F1-score are generated as evaluation metrics if there exist pertinent papers. In the absence of a ground truth dataset, 
+this function is a useful tool for evaluating the user-perceived relevance of suggested papers.
+"""
 def user_studies(recommended_papers):
     print("User Studies of Recommended Papers:")
     
