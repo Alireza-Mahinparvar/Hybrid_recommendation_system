@@ -122,7 +122,7 @@ if __name__ == '__main__':
     map_scores = []
 
     print("Beginning test iterations")
-    for x in range(100):
+    for x in range(1000):
         print(f"on paper {x}")
         poid = test_data[x]
         if poid not in papers_dict:
