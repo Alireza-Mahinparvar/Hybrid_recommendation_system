@@ -22,24 +22,27 @@ class ContentBasedModule:
         """
         f_dict = {}
         count = 0
-        fields = ['paper title', 'abstract', 'keywords']
+        fields = ['title', 'abstract']
         for field in fields:
             if field in paper:
-                string = paper[field]
-                # Replace all single characters with a space
-                string = re.sub(r'\b[a-zA-Z]\b', ' ', string)
-                # Replace all double spaces with one space
-                string = re.sub(' +', ' ', string)
-                # Remove leading and trailing spaces
-                string = string.strip().lower()
-                words = list(string.split(" "))
-                for word in words:
-                    if word not in stop_words:
-                        count += 1
-                        if word not in f_dict:
-                            f_dict[word] = 1
-                        elif word in f_dict:
-                            f_dict[word] += 1
+                try:
+                    string = paper[field]
+                    # Replace all single characters with a space
+                    string = re.sub(r'\b[a-zA-Z]\b', ' ', string)
+                    # Replace all double spaces with one space
+                    string = re.sub(' +', ' ', string)
+                    # Remove leading and trailing spaces
+                    string = string.strip().lower()
+                    words = list(string.split(" "))
+                    for word in words:
+                        if word not in stop_words:
+                            count += 1
+                            if word not in f_dict:
+                                f_dict[word] = 1
+                            elif word in f_dict:
+                                f_dict[word] += 1
+                except Exception:
+                    pass
         for word in f_dict:
             f_dict[word] = f_dict[word] / count
         return f_dict

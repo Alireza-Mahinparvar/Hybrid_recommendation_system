@@ -3,7 +3,7 @@ class Crawler:
     def __init__(self, refs: dict = {}):
         self.refs = refs
 
-    def get_subset(self, query: str):
+    def get_subset(self, query):
         subset = {}
         candidates = {}
         subset[query] = self.refs[query]
@@ -16,25 +16,26 @@ class Crawler:
                     if id not in subset:
                         subset[id] = paper
                     for ref in paper['references']:
-                        if ref not in subset:
+                        if ref not in subset and ref in self.refs:
                             subset[ref] = self.refs[ref]
                             candidates[ref] = self.refs[ref]
 
         # get query's references and those that cited query's references
         if "references" in self.refs[query]:
             for ref in self.refs[query]['references']:
-                if ref not in candidates:
-                    subset[ref] = self.refs[ref]
-                    candidates[ref] = self.refs[ref]
-                for id in self.refs:
-                    if id != query:
-                        paper = self.refs[id]
-                        if 'references' in paper:
-                            if ref in paper['references']:
-                                if id not in subset:
-                                    subset[id] = paper
-                                if id not in candidates:
-                                    candidates[id] = paper
+                if ref in self.refs:
+                    if ref not in candidates:
+                        subset[ref] = self.refs[ref]
+                        candidates[ref] = self.refs[ref]
+                    for id in self.refs:
+                        if id != query:
+                            paper = self.refs[id]
+                            if 'references' in paper:
+                                if ref in paper['references']:
+                                    if id not in subset:
+                                        subset[id] = paper
+                                    if id not in candidates:
+                                        candidates[id] = paper
 
         return subset, candidates
 
