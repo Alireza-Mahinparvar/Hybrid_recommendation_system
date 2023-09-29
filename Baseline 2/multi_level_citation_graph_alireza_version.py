@@ -118,8 +118,6 @@ def candidate_score(G, paper_of_interest, paper):
 paper = papers_dict['556798']  # Replace 110 with the id of the paper you want to start with
 citation_network = build_citation_network(paper)
 paper_of_interest = paper["id"]
-# print(citation_network.nodes)
-# print(citation_network.edges)
 
 print("paper of interest")
 print(paper)
@@ -219,7 +217,7 @@ for rank, paper in enumerate(top_papers, start=1):
     print(f"Rank {rank} - Paper ID: {id}, Title: {title}")
 
 
-# Define a function to conduct user studies
+
 def user_studies(recommended_papers):
     print("User Studies of Recommended Papers:")
     
@@ -271,12 +269,23 @@ def user_studies(recommended_papers):
     print(f"Number of Relevant Papers: {num_relevant}")
     print(f"Number of Irrelevant Papers: {num_irrelevant}")
     
+    if num_relevant + num_irrelevant > 0:
+        # Calculate precision, recall, and F1-score (use 0 if there are no relevant papers)
+        precision = num_relevant / (num_relevant + num_irrelevant)
+        recall = num_relevant / (num_relevant + num_irrelevant)
+        f1 = 2 * (precision * recall) / (precision + recall)
+        
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall: {recall:.2f}")
+        print(f"F1-score: {f1:.2f}")
+    else:
+        print("Precision, Recall, and F1-score cannot be calculated because there are no relevant papers.")
+    
+    return user_feedback, precision, recall, f1
 
 
-    return user_feedback
+user_studies(top_papers)
 
-# Example usage:
-user_feedback = user_studies(top_papers)
 
 
 undirected_citation_network = citation_network.to_undirected()
@@ -304,10 +313,9 @@ def evaluate_communities(partition, papers_dict):
         community_sizes[community_id].append(paper_id)
     
     # Print the number of papers in each community
-    print("\n Community Sizes:")
+    print("\nCommunity Sizes:")
     for community_id, papers in community_sizes.items():
         print(f"Community {community_id}: {len(papers)} papers")
 
 
-# Example usage:
 evaluate_communities(partition, papers_dict)
