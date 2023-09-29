@@ -3,8 +3,7 @@ import networkx as nx
 from collections import deque
 import matplotlib.pyplot as plt
 import pandas as pd
-from sklearn.metrics import precision_score, recall_score, f1_score
-from sklearn.metrics import ndcg_score
+import community
 
 # Connect to MongoDB
 client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
@@ -34,36 +33,34 @@ def find_citing_papers(paper_id):
 
 # Main function to build citation network
 def build_citation_network(paper, forward_levels=5, backward_levels=5):
+    paper_id = paper["id"]
     citation_network = nx.DiGraph()
-    citation_network.add_node(paper["id"], **paper)
+    citation_network.add_node(paper_id, **paper)  # Use paper information as attributes
 
-    # Forward direction (cited papers)
-    queue = deque([(paper, 0)])
-    while queue:
-        current_paper, level = queue.popleft()
-
-        if level < forward_levels:
-            for cited_paper_id in current_paper.get("references", []):
-                cited_paper = find_paper_by_id(cited_paper_id)
-                if cited_paper and not citation_network.has_node(cited_paper_id):
+    def explore_citations(paper_id, level, direction):
+        if level < forward_levels and direction == "forward":
+            for cited_paper_id in paper.get("references", []):
+                if not citation_network.has_node(cited_paper_id):
+                    cited_paper = papers_dict.get(cited_paper_id, {})
                     citation_network.add_node(cited_paper_id, **cited_paper)
-                    queue.append((cited_paper, level + 1))
-                citation_network.add_edge(current_paper["id"], cited_paper_id)
+                    citation_network.add_edge(paper_id, cited_paper_id)
+                    explore_citations(cited_paper_id, level + 1, "forward")
 
-    # Backward direction (citing papers)
-    queue = deque([(paper, 0)])
-    while queue:
-        current_paper, level = queue.popleft()
+        if level < backward_levels and direction == "backward":
+            for citing_paper_id in reverse_references.get(paper_id, []):
+                if not citation_network.has_node(citing_paper_id):
+                    citing_paper = papers_dict.get(citing_paper_id, {})
+                    citation_network.add_node(citing_paper_id, **citing_paper)
+                    citation_network.add_edge(citing_paper_id, paper_id)
+                    explore_citations(citing_paper_id, level + 1, "backward")
 
-        if level < backward_levels:
-            citing_papers = find_citing_papers(current_paper["id"])
-            for citing_paper in citing_papers:
-                if citing_paper and not citation_network.has_node(citing_paper["id"]):
-                    citation_network.add_node(citing_paper["id"], **citing_paper)
-                    queue.append((citing_paper, level + 1))
-                citation_network.add_edge(citing_paper["id"], current_paper["id"])
+    explore_citations(paper_id, 0, "forward")
+    explore_citations(paper_id, 0, "backward")
 
     return citation_network
+
+
+
 
 # Custom layout function for visualizing the citation network
 def bidirectional_layered_layout(G, root):
@@ -118,7 +115,7 @@ def candidate_score(G, paper_of_interest, paper):
     return (bc + cc) / distance
 
 # Example usage
-paper = papers_dict['322302']  # Replace 110 with the id of the paper you want to start with
+paper = papers_dict['556798']  # Replace 110 with the id of the paper you want to start with
 citation_network = build_citation_network(paper)
 paper_of_interest = paper["id"]
 # print(citation_network.nodes)
@@ -140,22 +137,27 @@ plt.show()
 
 for other_paper in citation_network.nodes:
     if other_paper != paper_of_interest:
-        bc = bibliographic_coupling(citation_network, paper_of_interest, other_paper)
-        cc = co_citation(citation_network, paper_of_interest, other_paper)
-        score = candidate_score(citation_network, paper_of_interest, other_paper)
-        if nx.has_path(citation_network, source=paper_of_interest, target=other_paper):
-            distance = nx.shortest_path_length(citation_network, source=paper_of_interest, target=other_paper)
-        else:
-            distance = float('inf')  # or some other large number indicating a very long distance
+        # Example usage to filter candidate papers
+
+        if len(papers_dict[other_paper].get("references", [])) > 0 or len(find_citing_papers(other_paper)) > 0:
+            
+
+            bc = bibliographic_coupling(citation_network, paper_of_interest, other_paper)
+            cc = co_citation(citation_network, paper_of_interest, other_paper)
+            score = candidate_score(citation_network, paper_of_interest, other_paper)
+            if nx.has_path(citation_network, source=paper_of_interest, target=other_paper):
+                distance = nx.shortest_path_length(citation_network, source=paper_of_interest, target=other_paper)
+            else:
+                distance = float('inf')  # or some other large number indicating a very long distance
         # distance = nx.shortest_path_length(citation_network, source=paper_of_interest, target=other_paper)
 
-        candidate_papers.append({
-            "paper": other_paper,
-            "bibliographic_coupling": bc,
-            "co_citation": cc,
-            "score": score,
-            "distance": distance,
-        })
+            candidate_papers.append({
+                "paper": other_paper,
+                "bibliographic_coupling": bc,
+                "co_citation": cc,
+                "score": score,
+                "distance": distance,
+            })
 
 # print(candidate_papers)
 
@@ -216,60 +218,96 @@ for rank, paper in enumerate(top_papers, start=1):
         title = "Paper information not found"
     print(f"Rank {rank} - Paper ID: {id}, Title: {title}")
 
-relevant_papers = []
-for paper in candidate_papers:
-    id=paper['paper']
-    relevant_papers.append(id)
 
-
-def evaluate_top_n_recommendations(top_papers, relevant_papers):
-    # Assuming relevant_papers contains the ground truth relevant papers
-    top_papers_ids = [paper['paper'] for paper in top_papers]
-    relevant_count = len(set(top_papers_ids).intersection(set(relevant_papers)))
-
-    precision = relevant_count / len(top_papers_ids)
-    recall = relevant_count / len(relevant_papers)
-    f1_score = 2 * (precision * recall) / (precision + recall)
-
-    # NDCG calculation using sklearn's ndcg_score
-    relevance_scores = [1 if paper['paper'] in relevant_papers else 0 for paper in top_papers]
-    ideal_relevance_scores = [1] * relevant_count + [0] * (len(top_papers) - relevant_count)
-    ndcg = ndcg_score([ideal_relevance_scores], [relevance_scores])
-
-    return precision, recall, f1_score, ndcg
-
-# Assuming relevant_papers contains the ground truth relevant papers' IDs
-precision, recall, f1_score, ndcg = evaluate_top_n_recommendations(top_papers, relevant_papers)
-
-print(f"Precision: {precision}")
-print(f"Recall: {recall}")
-print(f"F1-score: {f1_score}")
-print(f"NDCG: {ndcg}")
+# Define a function to conduct user studies
+def user_studies(recommended_papers):
+    print("User Studies of Recommended Papers:")
     
-def compute_graph_precision(recommended_papers, citation_network, paper_of_interest):
-    relevant_neighbors = set(citation_network.neighbors(paper_of_interest))
-    recommended_neighbors = set(paper['paper'] for paper in recommended_papers)
+    user_feedback = []
     
-    if len(recommended_neighbors) == 0:
-        return 0
-    else:
-        precision = len(recommended_neighbors.intersection(relevant_neighbors)) / len(recommended_neighbors)
-        return precision
-
-def compute_graph_recall(recommended_papers, citation_network, paper_of_interest):
-    relevant_neighbors = set(citation_network.neighbors(paper_of_interest))
-    recommended_neighbors = set(paper['paper'] for paper in recommended_papers)
+    for rank, paper in enumerate(recommended_papers, start=1):
+        paper_id = paper['paper']
+        paper_info = papers_dict.get(paper_id, None)
+        if paper_info:
+            title = paper_info.get('paper title', "Title not found")
+            abstract = paper_info.get('abstract', "Abstract not found")
+        else:
+            title = "Paper information not found"
+            abstract = "Abstract not found"
+        
+        print(f"Rank {rank} - Paper ID: {paper_id}")
+        print(f"Title: {title}")
+        print(f"Abstract: {abstract}")
+        
+        # Prompt the user for feedback
+        feedback = input("Is this paper relevant? (yes/no): ").strip().lower()
+        
+        # Process user feedback
+        if feedback == 'yes':
+            relevance_score = 1
+        elif feedback == 'no':
+            relevance_score = 0
+        else:
+            relevance_score = None
+        
+        # Store the user's feedback and relevance score
+        user_feedback.append({
+            'paper_id': paper_id,
+            'feedback': feedback,
+            'relevance_score': relevance_score
+        })
+        print("\n---\n")
     
-    if len(relevant_neighbors) == 0:
-        return 0
-    else:
-        recall = len(recommended_neighbors.intersection(relevant_neighbors)) / len(relevant_neighbors)
-        return recall
+    # Analyze the collected user feedback
+    relevant_papers = [feedback['paper_id'] for feedback in user_feedback if feedback['relevance_score'] == 1]
+    irrelevant_papers = [feedback['paper_id'] for feedback in user_feedback if feedback['relevance_score'] == 0]
+    
+    num_relevant = len(relevant_papers)
+    num_irrelevant = len(irrelevant_papers)
+    total_papers = len(recommended_papers)
+    
+    print("User Study Summary:")
+    print(f"Total Recommended Papers: {total_papers}")
+    print(f"Number of Relevant Papers: {num_relevant}")
+    print(f"Number of Irrelevant Papers: {num_irrelevant}")
+    
 
 
-recommended_papers = top_papers  # Replace with your recommended papers
-graph_precision = compute_graph_precision(recommended_papers, citation_network, paper_of_interest)
-graph_recall = compute_graph_recall(recommended_papers, citation_network, paper_of_interest)
+    return user_feedback
 
-print(f"Graph Precision: {graph_precision}")
-print(f"Graph Recall: {graph_recall}")
+# Example usage:
+user_feedback = user_studies(top_papers)
+
+
+undirected_citation_network = citation_network.to_undirected()
+
+# Perform community detection using the Louvain algorithm
+partition = community.best_partition(undirected_citation_network)
+#partition = community.best_partition(citation_network)
+
+# Visualize the communities
+pos = bidirectional_layered_layout(citation_network, paper_of_interest)
+plt.figure(figsize=(12, 12))
+cmap = plt.get_cmap('viridis', max(partition.values()) + 1)
+nx.draw(citation_network, pos, node_size=50, font_size=8, with_labels=True, node_color=list(partition.values()), cmap=cmap, edge_color="gray", arrows=True)
+plt.title("Citation Network with Communities (Louvain)")
+plt.savefig("citation_network_communities.png", dpi=300, bbox_inches="tight")
+plt.show()
+
+# Evaluate the quality and relevance of communities
+def evaluate_communities(partition, papers_dict):
+    community_sizes = {}
+    
+    for paper_id, community_id in partition.items():
+        if community_id not in community_sizes:
+            community_sizes[community_id] = []
+        community_sizes[community_id].append(paper_id)
+    
+    # Print the number of papers in each community
+    print("\n Community Sizes:")
+    for community_id, papers in community_sizes.items():
+        print(f"Community {community_id}: {len(papers)} papers")
+
+
+# Example usage:
+evaluate_communities(partition, papers_dict)
