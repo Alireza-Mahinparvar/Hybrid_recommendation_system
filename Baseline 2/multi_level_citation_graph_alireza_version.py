@@ -292,7 +292,13 @@ def user_studies(recommended_papers):
 user_studies(top_papers)
 
 
-
+"""
+Community Detection: The Louvain method is used in this section of the code to carry out community detection within the citation network.
+For this approach, the citation network is initially transformed into an undirected graph. Academic article clusters with strong links and 
+common themes make up the discovered communities. The algorithm then depicts these communities as part of the network, giving the structure 
+and coherence of the academic publications a visual representation. This community detection method is useful for revealing hidden links and 
+patterns in the citation network, assisting in the investigation of research themes and interdisciplinary teams of scholars.
+"""
 undirected_citation_network = citation_network.to_undirected()
 
 # Perform community detection using the Louvain algorithm
