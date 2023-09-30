@@ -37,7 +37,64 @@ class Recommender:
             sorted_candidates.append(candidates[candidate])
 
         sorted_candidates = sorted(sorted_candidates, key=lambda x: x['score'], reverse=True)
-        return sorted_candidates[:min(5, len(candidates))]
+        return sorted_candidates[:min(10, len(candidates))]
+
+def user_studies(recommended_papers):
+    print("User Studies of Recommended Papers:")
+
+    user_feedback = []
+
+    for i in range(len(recommended_papers)):
+        paper = recommended_papers[i]
+        pprint.pprint(f"Rank {i + 1} - Paper ID: {paper['id']}")
+        pprint.pprint(f"Title: {paper['paper title']}")
+        pprint.pprint(f"Abstract: {paper.get('abstract', 'None')}")
+
+        # Prompt the user for feedback
+        feedback = input("Is this paper relevant? (yes/no): ").strip().lower()
+
+        # Process user feedback
+        if feedback == 'yes':
+            relevance_score = 1
+        elif feedback == 'no':
+            relevance_score = 0
+        else:
+            relevance_score = None
+
+        # Store the user's feedback and relevance score
+        user_feedback.append({
+            'paper_id': paper_id,
+            'feedback': feedback,
+            'relevance_score': relevance_score
+        })
+        print("\n---\n")
+
+    # Analyze the collected user feedback
+    relevant_papers = [feedback['paper_id'] for feedback in user_feedback if feedback['relevance_score'] == 1]
+    irrelevant_papers = [feedback['paper_id'] for feedback in user_feedback if feedback['relevance_score'] == 0]
+
+    num_relevant = len(relevant_papers)
+    num_irrelevant = len(irrelevant_papers)
+    total_papers = len(recommended_papers)
+
+    print("User Study Summary:")
+    print(f"Total Recommended Papers: {total_papers}")
+    print(f"Number of Relevant Papers: {num_relevant}")
+    print(f"Number of Irrelevant Papers: {num_irrelevant}")
+
+    if num_relevant + num_irrelevant > 0:
+        # Calculate precision, recall, and F1-score (use 0 if there are no relevant papers)
+        precision = num_relevant / (num_relevant + num_irrelevant)
+        recall = num_relevant / (num_relevant + num_irrelevant)
+        f1 = 2 * (precision * recall) / (precision + recall)
+
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall: {recall:.2f}")
+        print(f"F1-score: {f1:.2f}")
+    else:
+        print("Precision, Recall, and F1-score cannot be calculated because there are no relevant papers.")
+
+    return user_feedback, precision, recall, f1
 
 if __name__ == '__main__':
     import json
@@ -56,4 +113,12 @@ if __name__ == '__main__':
 
     system = Recommender(papers_dict)
 
-    pprint.pprint(system.recommend("289052"))
+    paper_id = '322'
+    paper_of_interest = papers_dict[paper_id]
+    recommendations = system.recommend(paper_id)
+
+    print("Paper of Interest:")
+    pprint.pprint(f"Title: {paper_of_interest['paper title']}")
+    pprint.pprint(f"Abstract: {paper_of_interest.get('abstract', 'None')}")
+
+    user_studies(recommendations)
