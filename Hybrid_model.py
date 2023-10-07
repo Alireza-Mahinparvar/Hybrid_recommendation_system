@@ -211,8 +211,8 @@ if __name__ == '__main__':
 
     # Create an instance of the neural network model
     num_nodes = len(papers_dict)
-    num_features = 64
-    num_classes = 16
+    num_features = 3
+    num_classes = num_classes = papers_dict['year'].nunique()
     hidden_dim = 32
     model = RecommendationCommunityModel(num_nodes, num_features, num_classes, hidden_dim)
 
