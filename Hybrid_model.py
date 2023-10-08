@@ -10,13 +10,15 @@ import sys
 #sys.path.append(r'C:\Users\alire\Hybrid_recommendation_system-main\Baseline2')
 from multi_level_citation_graph_alireza_version import build_citation_network
 #sys.path.append(r'C:\Users\alire\Hybrid_recommendation_system-main\Baseline1')
-from recommender import user_studies,RecommendationSystem
+from recommender import user_studies
 from content_based import ContentBasedModule
 from crawler import Crawler
 from collaborative_filtering import CollaborativeFilteringModule
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import OneHotEncoder
 from torch_geometric.data import Data, DataLoader
 import torch.optim as optim
 
@@ -31,8 +33,7 @@ class RecommendationCommunityModel(nn.Module):
             self.fc1 = nn.Linear(num_features, hidden_dim)
             self.fc2 = nn.Linear(hidden_dim, num_classes)
 
-        def forward(self, x, edge_index):
-            # Define the forward pass of  neural network here
+        def forward(self, x):
             x = F.relu(self.fc1(x))
             x = self.fc2(x)
             return x
@@ -41,7 +42,6 @@ def extract_title_features(title):
     # Initialize title features dictionary
     title_features = {}
     
-    # Feature: Length of the title
     title_length = len(title)
     title_features['title_length'] = title_length
     
@@ -164,11 +164,12 @@ if __name__ == '__main__':
         for ref_id in references:
             edge_index.append((paper_id, ref_id))
 
-    # Add edges to the citation network
     citation_network.add_edges_from(edge_index)
 
-#    Perform community detection using the Louvain algorithm
-    partition = community.best_partition(citation_network)
+    citation_network_undirected = citation_network.to_undirected()
+
+
+    partition = community.best_partition(citation_network_undirected )
 
     # Retrieve community labels for each paper
     community_labels = [partition[paper_id] for paper_id in citation_network.nodes]
@@ -179,40 +180,46 @@ if __name__ == '__main__':
         # Get recommendations for the target paper (including similarity scores)
     recommendations = recommendation_system.recommend(paper_id)
 
-        # Extract similarity scores from recommendations
-    similarity_scores = [rec['score'] for rec in recommendations]
+    author_encoder = OneHotEncoder(sparse=False)
+# Flatten the list of authors and reshape it into a 2D array with a single feature
+    author_encodings = author_encoder.fit_transform([[author] for rec in recommendations for author in rec['authors']])
 
-        # Add similarity_scores to input_recommendation_data
-    input_recommendation_data['similarity_scores'] = similarity_scores
-    your_recommendation_features = []
-    for recommendation in recommendations:
-        similarity_score = recommendation['score']
-        author = recommendation['authors']
-        rec_title = recommendation['title']
-        
-        # Append the features to your_recommendation_features
-        your_recommendation_features.append([
-            similarity_score,
-            author,
-            rec_title,
-            input_recommendation_data['title_features'],
-            input_recommendation_data['abstract_features'],
-            input_recommendation_data['authors'],
-            input_recommendation_data['affiliations'],
-            input_recommendation_data['year'],
-            input_recommendation_data['publication_venue'],
-            input_recommendation_data['references']
-        ])
+# Create a label encoder for titles
+    title_encoder = OneHotEncoder(sparse=False)
+# Flatten the list of paper titles and reshape it into a 2D array with a single feature
+    title_encodings = title_encoder.fit_transform([[title] for rec in recommendations for title in rec['paper title']])
 
-    # Convert your_recommendation_features to a PyTorch tensor
-    your_recommendation_features = torch.tensor(your_recommendation_features, dtype=torch.float32)
-    # Convert your_recommendation_features to a PyTorch tensor
+
+# Convert the one-hot encoded features to PyTorch tensors
+    author_one_hot = torch.tensor(author_encodings, dtype=torch.float32)
+    title_one_hot = torch.tensor(title_encodings, dtype=torch.float32)
+    # Make sure author_one_hot and title_one_hot have the same number of rows (should match the number of recommendations)
+    num_recommendations = len(recommendations)
+    author_one_hot = author_one_hot[:num_recommendations, :]
+    title_one_hot = title_one_hot[:num_recommendations, :]
+
+# Combine one-hot encoded features with similarity scores and other numeric features
+    your_recommendation_features = torch.cat([
+        torch.tensor([rec['score'] for rec in recommendations], dtype=torch.float32).unsqueeze(1),
+        author_one_hot,
+        title_one_hot,
+    # ... other numeric features (e.g., input_recommendation_data['title_features'], etc.) ...
+    ], dim=1)
     your_recommendation_features = torch.tensor(your_recommendation_features, dtype=torch.float32)
 
     # Create an instance of the neural network model
+    unique_years = set()
+
+    # Loop through your dataset and add each paper's year to the set
+    for paper in data:
+        year = paper.get("year", "")  # Get the year or an empty string if it's not available
+        if year:
+            unique_years.add(year)
+
+    # Calculate the number of unique years
+    num_classes = len(unique_years)
     num_nodes = len(papers_dict)
     num_features = 3
-    num_classes = num_classes = papers_dict['year'].nunique()
     hidden_dim = 32
     model = RecommendationCommunityModel(num_nodes, num_features, num_classes, hidden_dim)
 
@@ -253,3 +260,4 @@ if __name__ == '__main__':
 
     # Example usage for recommendation refinement
     _, recommendation_embeddings = model(input_recommendation_data, edge_index)
+
