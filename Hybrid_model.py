@@ -6,258 +6,163 @@ import pandas as pd
 import community
 import sys
 
-# Use a raw string to specify the file path
-#sys.path.append(r'C:\Users\alire\Hybrid_recommendation_system-main\Baseline2')
-from multi_level_citation_graph_alireza_version import build_citation_network
-#sys.path.append(r'C:\Users\alire\Hybrid_recommendation_system-main\Baseline1')
-from recommender import user_studies
-from content_based import ContentBasedModule
-from crawler import Crawler
-from collaborative_filtering import CollaborativeFilteringModule
+from Baseline1.recommender import user_studies
+from Baseline1.content_based import ContentBasedModule
+from Baseline1.crawler import Crawler
+from Baseline1.collaborative_filtering import CollaborativeFilteringModule
+from Baseline1.recommender import Recommender
 import torch
 import torch.nn as nn
+from torch_geometric.nn import GCNConv
+from torch_geometric.data import Data, DataLoader
+from torch_geometric.datasets import KarateClub
 import torch.nn.functional as F
 from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import OneHotEncoder
-from torch_geometric.data import Data, DataLoader
 import torch.optim as optim
 
 
-
 # Define neural network architecture for the hybrid model
-class RecommendationCommunityModel(nn.Module):
-        def __init__(self, num_nodes, num_features, num_classes, hidden_dim):
-            super(RecommendationCommunityModel, self).__init__()
-        
-            # Define the layers of  neural network here
-            self.fc1 = nn.Linear(num_features, hidden_dim)
-            self.fc2 = nn.Linear(hidden_dim, num_classes)
+class GCN(nn.Module):
+    def __init__(self, num_features, num_classes, hidden_dim):
+        super().__init__()
 
-        def forward(self, x):
-            x = F.relu(self.fc1(x))
-            x = self.fc2(x)
-            return x
+        # Define the layers of  neural network here
+        self.conv1 = GCNConv(num_features, hidden_dim)
+        self.conv2 = GCNConv(hidden_dim, hidden_dim)
+        self.classifier = nn.Linear(hidden_dim, num_classes)
 
-def extract_title_features(title):
-    # Initialize title features dictionary
-    title_features = {}
-    
-    title_length = len(title)
-    title_features['title_length'] = title_length
-    
-    # Feature: Word count in the title
-    title_words = title.split()
-    title_word_count = len(title_words)
-    title_features['title_word_count'] = title_word_count
-    
-    # You can add more title features as needed
-    
-    return title_features
+    def forward(self, x, edge_index):
+        h = self.conv1(x, edge_index)
+        h = h.tanh()
+        h = self.conv2(h, edge_index)
+        h = h.tanh()  # Final GNN embedding space.
 
-def extract_abstract_features(abstract):
-    # Initialize abstract features dictionary
-    abstract_features = {}
-    
-    # Feature: Length of the abstract
-    abstract_length = len(abstract)
-    abstract_features['abstract_length'] = abstract_length
-    
-    # Feature: Word count in the abstract
-    abstract_words = abstract.split()
-    abstract_word_count = len(abstract_words)
-    abstract_features['abstract_word_count'] = abstract_word_count
-    
-    # You can add more abstract features as needed
-    
-    return abstract_features
+        # Apply a final (linear) classifier.
+        out = self.classifier(h)
 
-class Recommender:
-    def __init__(self, refs: dict):
-        self.refs = refs
-        self.crawler = Crawler(refs)
-        self.content_based = ContentBasedModule()
-        self.collab_filter = None
+        return out, h
 
-    def _normalize_score(self, content_score: float, collab_score: float) -> float:
-        normalized_score = (content_score + collab_score) / 2
-        return normalized_score
-
-    def recommend(self, paper: str) -> list:
-        print(f"grabbing subset surrounding paper {paper}")
-        subset, candidates = self.crawler.get_subset(paper)
-
-        print(f"Calculating term frequency for paper {paper}")
-        query_tf = self.content_based.term_freq(self.refs[paper])
-
-        print(f"Calculating citation relations for subset")
-        self.collab_filter = CollaborativeFilteringModule(subset)
-
-        recommendations = []
-        for candidate in candidates:
-            print(f"Calculating content-based score for paper {candidate}")
-            content_score = self.content_based.cosine_simi(query_tf, self.content_based.term_freq(self.refs[candidate]))
-
-            print(f"Calculating collaborative filtering score for paper {candidate}")
-            collab_score = self.collab_filter.get_total_score(paper, candidate)
-
-            # Calculate the similarity score and include it in the result
-            similarity_score = self._normalize_score(content_score, collab_score)
-
-            candidates[candidate]['score'] = similarity_score  # Include similarity score
-            recommendations.append(candidates[candidate])
-
-        # Sort recommendations by score
-        sorted_recommendations = sorted(recommendations, key=lambda x: x['score'], reverse=True)
-        return sorted_recommendations[:min(10, len(candidates))]
+def visualize_embedding(h, color, epoch=None, loss=None):
+    plt.figure(figsize=(7,7))
+    plt.xticks([])
+    plt.yticks([])
+    h = h.detach().cpu().numpy()
+    plt.scatter(h[:, 0], h[:, 1], s=140, c=color, cmap="Set2")
+    if epoch is not None and loss is not None:
+        plt.xlabel(f'Epoch: {epoch}, Loss: {loss.item():.4f}', fontsize=16)
+    plt.show()
 
 if __name__ == '__main__':
+    import pprint
+    # dataset = KarateClub()
+    # data = dataset[0]
+    # pprint.pprint(data.x)
+    # pprint.pprint(data.edge_index)
+    # pprint.pprint(data.y)
+    # pprint.pprint(data.train_mask)
+    # pprint.pprint(data.y[data.train_mask])
+    # a = 1 / 0
+
     # Connect to MongoDB for the citation network data
+    print("connecting to mongo")
     client = pymongo.MongoClient("mongodb://localhost:27017")
     db = client["Aminer"]
-    collection = db["Aminer_full_data"]
+    collection = db["papers"]
     data = list(collection.find())
     papers_dict = {paper["id"]: paper for paper in data}
-    
+
     # Define paper of interest
-    paper_id = '556798'
+    crawler = Crawler(papers_dict)
+    content_based = ContentBasedModule()
+    paper_id = "556798"
     paper = papers_dict[paper_id]
-    
-    if paper:
-    # Extract relevant features from the paper
-        title = paper.get("paper title", "")
-        abstract = paper.get("abstract", "")
-        authors = paper.get("authors", [])
-        affiliations = paper.get("affiliations", [])
-        year = paper.get("year", "")
-        publication_venue = paper.get("publication venue", "")
-        references = paper.get("references", [])
+    paper_tf = content_based.term_freq(paper)
 
-    # Extract additional features as needed
-    # For this example, we'll assume 'title_features' and 'abstract_features' are placeholders
-        title_features = extract_title_features(title)
-        abstract_features = extract_abstract_features(abstract)
+    # finding subset to build graph out of
+    subset, candidates = crawler.get_subset(paper_id)
+    collab_filter = CollaborativeFilteringModule(subset)
 
-    # Create the input_recommendation_data dictionary with all features
-        input_recommendation_data = {
-            'title_features': title_features,
-            'abstract_features': abstract_features,
-            'authors': authors,
-            'affiliations': affiliations,
-            'year': year,
-            'publication_venue': publication_venue,
-            'references': references,
-        }
+    print("building citation network")
+    new_index = {}
+    features = []
+    edge_index = [[], []]
 
-    # Now, input_recommendation_data contains all the extracted features
-        print(input_recommendation_data)
-    else:
-        print(f"Paper with ID {paper_id} not found.")
+    for id in subset:
+        paper = subset[id]
+        if id not in new_index:
+            new_index[id] = len(features)
+            cosine = content_based.cosine_simi(paper_tf, content_based.term_freq(id))
+            cooccured = collab_filter.get_cooccurred_score(paper_id, id)
+            cooccuring = collab_filter.get_cooccurring_score(paper_id, id)
+            features.append([cosine, cooccured, cooccuring])
+        for ref in paper.get('references', []):
+            if ref in subset:
+                if ref not in new_index:
+                    new_index[ref] = len(features)
+                    cosine = content_based.cosine_simi(paper_tf, content_based.term_freq(ref))
+                    cooccured = collab_filter.get_cooccurred_score(paper_id, ref)
+                    cooccuring = collab_filter.get_cooccurring_score(paper_id, ref)
+                    features.append([cosine, cooccured, cooccuring])
+                edge_index[0].append(new_index[id])
+                edge_index[1].append(new_index[ref])
 
-    # Build the citation network
-    citation_network = build_citation_network(paper)
-    
-    # Create an edge index and gather citation relationships
-    edge_index = []
-    for paper in data:
-        paper_id = paper["id"]
-        references = paper.get("references", [])
-        for ref_id in references:
-            edge_index.append((paper_id, ref_id))
-
-    citation_network.add_edges_from(edge_index)
-
-    citation_network_undirected = citation_network.to_undirected()
-
-
-    partition = community.best_partition(citation_network_undirected )
-
-    # Retrieve community labels for each paper
-    community_labels = [partition[paper_id] for paper_id in citation_network.nodes]
-    
-    
+    # Retrieve temp ideal papers
     recommendation_system = Recommender(papers_dict)
 
-        # Get recommendations for the target paper (including similarity scores)
+    # Get recommendations for the target paper (including similarity scores)
     recommendations = recommendation_system.recommend(paper_id)
+    y = [0 for i in range(len(features))]
+    for paper in recommendations:
+        y[new_index[paper["id"]]] = 1
+    x = torch.tensor(features, dtype=torch.float)
 
-    author_encoder = OneHotEncoder(sparse=False)
-# Flatten the list of authors and reshape it into a 2D array with a single feature
-    author_encodings = author_encoder.fit_transform([[author] for rec in recommendations for author in rec['authors']])
-
-# Create a label encoder for titles
-    title_encoder = OneHotEncoder(sparse=False)
-# Flatten the list of paper titles and reshape it into a 2D array with a single feature
-    title_encodings = title_encoder.fit_transform([[title] for rec in recommendations for title in rec['paper title']])
-
-
-# Convert the one-hot encoded features to PyTorch tensors
-    author_one_hot = torch.tensor(author_encodings, dtype=torch.float32)
-    title_one_hot = torch.tensor(title_encodings, dtype=torch.float32)
-    # Make sure author_one_hot and title_one_hot have the same number of rows (should match the number of recommendations)
-    num_recommendations = len(recommendations)
-    author_one_hot = author_one_hot[:num_recommendations, :]
-    title_one_hot = title_one_hot[:num_recommendations, :]
-
-# Combine one-hot encoded features with similarity scores and other numeric features
-    your_recommendation_features = torch.cat([
-        torch.tensor([rec['score'] for rec in recommendations], dtype=torch.float32).unsqueeze(1),
-        author_one_hot,
-        title_one_hot,
-    # ... other numeric features (e.g., input_recommendation_data['title_features'], etc.) ...
-    ], dim=1)
-    your_recommendation_features = torch.tensor(your_recommendation_features, dtype=torch.float32)
-
-    # Create an instance of the neural network model
-    unique_years = set()
-
-    # Loop through your dataset and add each paper's year to the set
-    for paper in data:
-        year = paper.get("year", "")  # Get the year or an empty string if it's not available
-        if year:
-            unique_years.add(year)
+    train_mask = [True if i < 20 else False for i in range(len(features))]
+    rec_ids = set()
+    for recommendation in recommendations:
+        train_mask[new_index[recommendation["id"]]] = True
+        rec_ids.add(recommendation["id"])
 
     # Calculate the number of unique years
-    num_classes = len(unique_years)
-    num_nodes = len(papers_dict)
+    num_classes = 2
     num_features = 3
-    hidden_dim = 32
-    model = RecommendationCommunityModel(num_nodes, num_features, num_classes, hidden_dim)
+    hidden_dim = 10
+    model = GCN(num_features, num_classes, hidden_dim)
 
     # Define loss functions and optimizer
-    community_criterion = nn.CrossEntropyLoss()
-    recommendation_criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    criterion = torch.nn.CrossEntropyLoss()  # Define loss criterion.
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)  # Define optimizer.
 
     # Prepare data and create DataLoader
-    data = Data(x=your_recommendation_features, edge_index=edge_index, y=community_labels)
-    batch_size = 32
-    loader = DataLoader([data], batch_size=batch_size, shuffle=True)
+    data = Data(x=x,
+                edge_index=torch.tensor(edge_index),
+                y=torch.tensor(y, dtype=torch.long))
 
     # Training loop (customize as needed)
-    epochs = 100
+    epochs = 1000
     for epoch in range(epochs):
-        total_loss = 0.0
-        for batch_data in loader:
-            optimizer.zero_grad()
-            community_predictions, recommendation_predictions = model(batch_data.x, batch_data.edge_index)
-            
-            # Compute losses for both tasks
-            community_loss = community_criterion(community_predictions, batch_data.y)
-            recommendation_loss = recommendation_criterion(recommendation_predictions, batch_data.x)
-            
-            # Combine the losses with a weighting factor
-            total_loss = community_loss + 0.1 * recommendation_loss
-            
-            total_loss.backward()
-            optimizer.step()
-        
-        print(f'Epoch [{epoch+1}/{epochs}] Loss: {total_loss.item()}')
+        optimizer.zero_grad()  # Clear gradients.
+        out, h = model(data.x, data.edge_index)  # Perform a single forward pass.
+        loss = criterion(out[train_mask], data.y[train_mask])  # Compute the loss solely based on the training nodes.
+        loss.backward()  # Derive gradients.
+        optimizer.step()  # Update parameters based on gradients.
 
-    # Use the model for community detection and recommendation refinement
-    
-    community_embeddings, _ = model(input_recommendation_data, edge_index)
-    predicted_communities = torch.argmax(community_embeddings, dim=1)
+        print(f'Epoch [{epoch + 1}/{epochs}] Loss: {loss.item()}')
 
-    # Example usage for recommendation refinement
-    _, recommendation_embeddings = model(input_recommendation_data, edge_index)
+    reverse_index = {new_index[i]: i for i in new_index}
+    out, h = model(data.x, data.edge_index)
+    pprint.pprint(out)
+    j = 0
+    test_recs = set()
+    for i in out:
+        if i[0] < i[1]:
+            test_recs.add(reverse_index[j])
+        j += 1
 
+    print(f"length of optimal: {len(rec_ids)}")
+    print(f"Length of recommendations: {len(test_recs)}")
+    intersect = test_recs.intersection(rec_ids)
+    print("Intersection = ")
+    pprint.pprint(intersect)
+
+    visualize_embedding(h, color=data.y)
