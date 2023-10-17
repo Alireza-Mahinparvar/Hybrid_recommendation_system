@@ -11,9 +11,11 @@ import pandas as pd
 import re
 import math
 import nltk
+
 nltk.download('stopwords')
 from nltk.corpus import stopwords
 import networkx as nx
+
 
 class CitationNetworkBuilder:
     def __init__(self, papers_dict, reverse_references):
@@ -90,18 +92,20 @@ class CitationNetworkBuilder:
         X_cited_by = set(G.predecessors(X))
         Y_cited_by = set(G.predecessors(Y))
         return len(X_cited_by.intersection(Y_cited_by))
-    
+
     def get_top_recommendations(self, paper_of_interest, top_n=10):
         candidate_papers = []
 
         for other_paper in self.citation_network.nodes:
             if other_paper != paper_of_interest:
-                if len(self.papers_dict[other_paper].get("references", [])) > 0 or len(self.find_citing_papers(other_paper)) > 0:
+                if len(self.papers_dict[other_paper].get("references", [])) > 0 or len(
+                        self.find_citing_papers(other_paper)) > 0:
                     bc = self.bibliographic_coupling(self.citation_network, paper_of_interest, other_paper)
                     cc = self.co_citation(self.citation_network, paper_of_interest, other_paper)
                     score = self.candidate_score(self.citation_network, paper_of_interest, other_paper)
                     if nx.has_path(self.citation_network, source=paper_of_interest, target=other_paper):
-                        distance = nx.shortest_path_length(self.citation_network, source=paper_of_interest, target=other_paper)
+                        distance = nx.shortest_path_length(self.citation_network, source=paper_of_interest,
+                                                           target=other_paper)
                     else:
                         distance = float('inf')  # or some other large number indicating a very long distance
 
@@ -145,7 +149,8 @@ class CitationNetworkBuilder:
             centrality_df["betweenness_rank"] = centrality_df["betweenness"].rank(ascending=False)
             centrality_df["eigenvector_rank"] = centrality_df["eigenvector"].rank(ascending=False)
 
-            centrality_df["average_rank"] = centrality_df[["degree_rank", "closeness_rank", "betweenness_rank", "eigenvector_rank"]].mean(axis=1)
+            centrality_df["average_rank"] = centrality_df[
+                ["degree_rank", "closeness_rank", "betweenness_rank", "eigenvector_rank"]].mean(axis=1)
             centrality_df = centrality_df.sort_values("average_rank")
 
             top_papers = centrality_df[["paper", "average_rank"]].head(top_n).to_dict("records")
@@ -157,8 +162,8 @@ class CitationNetworkBuilder:
         return top_recommendations
 
 
-
 from itertools import combinations
+
 
 class CollaborativeFilteringModule(nn.Module):
     def __init__(self, refs):
@@ -251,8 +256,9 @@ class CollaborativeFilteringModule(nn.Module):
         # Calculate cooccurred and cooccurring scores between two papers
         cooccurred_score = self.get_cooccurred_score(paper1, paper2)
         cooccurring_score = self.get_cooccurring_score(paper1, paper2)
-        return cooccurred_score, cooccurring_score
-    
+        return (cooccurred_score + cooccurring_score) / 2
+
+
 class Crawler:
     def __init__(self, refs: dict = {}):
         self.refs = refs
@@ -291,14 +297,17 @@ class Crawler:
                                     candidates[id] = paper
 
         return subset, candidates
-    
+
+
 stop_words = set(stopwords.words('english'))
+
+
 class ContentBasedModule(nn.Module):
     def __init__(self, papers_dict):
         super(ContentBasedModule, self).__init__()
         self.papers_dict = papers_dict
 
-    def term_freq(self, paper: dict) -> dict:
+    def term_freq(self, paper_id) -> dict:
         """
         Calculates term frequency for given paper
         :param paper: dict containing 'title' and/or 'abstract'
@@ -307,6 +316,7 @@ class ContentBasedModule(nn.Module):
             'word': term_frequency
         }
         """
+        paper = self.papers_dict[paper_id]
         f_dict = {}
         count = 0
         fields = ['paper title', 'abstract', 'keywords']
@@ -331,7 +341,7 @@ class ContentBasedModule(nn.Module):
             f_dict[word] = f_dict[word] / count
         return f_dict
 
-    def cosine_simi(self, paper1: dict, paper2: dict) -> float:
+    def cosine_similarity(self, paper1: dict, paper2: dict) -> float:
         """
         Calculate cosine simialrity of 2 word frequency dictionaries
         :param paper1: word frequencies of paper 1
@@ -346,18 +356,18 @@ class ContentBasedModule(nn.Module):
         for word in word_list1:
             if word in word_list2:
                 dot_prod += paper1[word] * paper2[word]
-            dist1 += paper1[word]*paper1[word]
+            dist1 += paper1[word] * paper1[word]
         dist1 = math.sqrt(dist1)
         for word in word_list2:
-            dist2 += paper2[word]*paper2[word]
+            dist2 += paper2[word] * paper2[word]
         dist2 = math.sqrt(dist2)
         return dot_prod / (dist1 + dist2)
 
-
     def forward(self, paper1_id, paper2_id):
         # Calculate cosine similarity between two papers
-        similarity = self.cosine_similarity(paper1_id, paper2_id)
+        similarity = self.cosine_similarity(self.term_freq(paper1_id), self.term_freq(paper2_id))
         return similarity
+
 
 class HybridRecommendationSystem:
     def __init__(self, papers_dict, reverse_references, device='cuda'):
@@ -369,36 +379,52 @@ class HybridRecommendationSystem:
         citation_builder = CitationNetworkBuilder(self.papers_dict, self.reverse_references)
 
         # Call the build_citation_network function
+        print("building citation network")
         self.citation_network = citation_builder.build_citation_network(self.papers_dict["556798"])
         adjacency_matrix = nx.adjacency_matrix(self.citation_network, weight='weight')
         self.citation_similarity_matrix = adjacency_matrix.toarray()
-        
+
         # Convert the directed citation network into an undirected graph
         undirected_citation_network = self.citation_network.to_undirected()
 
         # Apply the Louvain community detection algorithm to the undirected graph
+        print("partition time")
         self.communities = community.best_partition(undirected_citation_network)
 
         # Load the pre-trained content-based and collaborative filtering modules
+        print("content based module creation")
         self.content_based_module = ContentBasedModule(self.papers_dict).to(self.device)
-        self.collaborative_filtering_module = CollaborativeFilteringModule(self.papers_dict).to(self.device)
 
     def recommend(self, paper_id, top_k=10):
-        # Calculate the content-based similarity score between the target paper and all other papers
-        content_based_similarity_scores = self.content_based_module(paper_id)
+        print("finding subset")
+        subset, _ = Crawler(self.papers_dict).get_subset(paper_id)
+        print("collab filtering module")
+        # Create cooccurred and coccurring matrices
+        self.collaborative_filtering_module = CollaborativeFilteringModule(subset).to(self.device)
 
-        # Calculate the collaborative filtering similarity score between the target paper and all other papers in the same community
-        community_id = self.communities[paper_id]
-        collaborative_filtering_similarity_scores = self.collaborative_filtering_module(paper_id, community_id)
+        # generate set of papers to run scoring on
+        candidates = set()
+        for paper in subset:
+            candidates.add(subset[paper]["id"])
+        for node in self.citation_network.nodes:
+            candidates.add(node)
 
-        # Calculate the citation similarity score between the target paper and all other papers
-        citation_similarity_scores = self.citation_similarity_matrix[paper_id]
+        # generate scores for each candidate
+        hybrid_similarity_scores = []
+        for candidate in candidates:
+            # Calculate the content-based similarity score
+            content_based_similarity_score = self.content_based_module(paper_id, candidate)
 
-        # Combine the content-based, collaborative filtering, and citation similarity scores
-        hybrid_similarity_scores = content_based_similarity_scores + collaborative_filtering_similarity_scores + citation_similarity_scores
+            # Calculate the collaborative filtering similarity score
+            collaborative_filtering_similarity_score = self.collaborative_filtering_module(paper_id, candidate)
+
+            # combine scores
+            total_score = content_based_similarity_score + collaborative_filtering_similarity_score
+
+            hybrid_similarity_scores.append((candidate, total_score))
 
         # Sort the papers by hybrid similarity score
-        sorted_papers = sorted(enumerate(hybrid_similarity_scores), key=lambda x: x[1], reverse=True)
+        sorted_papers = sorted(hybrid_similarity_scores, key=lambda x: x[1], reverse=True)
 
         # Get the top-k recommendations based on author ranking
         author_ranking_recommendations = []
@@ -414,15 +440,18 @@ class HybridRecommendationSystem:
 
         return [paper_index for paper_index, _ in author_ranking_recommendations]
 
+
 if __name__ == "__main__":
     # Connect to MongoDB
+    print("connecting to mongodb")
     client = pymongo.MongoClient("mongodb://localhost:27017")  # Update with your MongoDB connection details
     db = client["Aminer"]  # Replace with your database name
-    collection = db["Aminer_full_data"]  # Replace with your collection name
+    collection = db["papers"]  # Replace with your collection name
 
     # Query the MongoDB collection to retrieve the data
     data = list(collection.find())
 
+    print("dataset refinement")
     # Create a dictionary to store the papers indexed by their ids
     papers_dict = {paper["id"]: paper for paper in data}
     reverse_references = {}
@@ -433,17 +462,19 @@ if __name__ == "__main__":
             reverse_references[ref_id].append(paper["id"])
 
     # Create an instance of the HybridRecommendationSystem class
+    print("instantiating model")
     recommendation_system = HybridRecommendationSystem(papers_dict, reverse_references)
 
     # Specify the paper_id for which you want to get recommendations
     target_paper_id = "556798"
 
     # Get recommendations for the specified paper_id
+    print("recommending")
     top_k_recommendations = recommendation_system.recommend(target_paper_id, top_k=10)
 
     print("Top 10 recommendations for paper with ID", target_paper_id)
     for paper_id in top_k_recommendations:
         paper = papers_dict.get(paper_id)
         if paper:
-            print(f"Paper ID: {paper_id}, Title: {paper.get('title', 'N/A')}")
+            print(f"Paper ID: {paper_id}, Title: {paper.get('paper title', 'N/A')}")
 
