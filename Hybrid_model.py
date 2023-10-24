@@ -311,7 +311,7 @@ class ContentBasedModule(nn.Module):
     def __init__(self, papers_dict):
         super(ContentBasedModule, self).__init__()
         self.papers_dict = papers_dict
-        self.palm_api_key = "AIzaSyDWzbegCnnphCgWpdD9uk4_we1QGFp--EE"
+        self.palm_api_key = ""
 
     # Existing code for term_freq, cosine_similarity, and forward methods
     def term_freq(self, paper_id) -> dict:
