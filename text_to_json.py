@@ -1,20 +1,33 @@
 import json
+import re
 
-# Define a function to process AMiner-Author.txt
+# Define a function to process AMiner-Author.txt and save as JSON
 def process_author_file(input_filename, output_filename):
     authors = []
 
-    with open(input_filename, 'r', encoding='utf-8') as file:
+    with open(input_filename, 'r', encoding='utf-8', errors='ignore') as file:
         author = {}
         for line in file:
             line = line.strip()
-            if line:
-                key_value = line.split(None, 1)
-                if len(key_value) == 2:
-                    key, value = key_value
-                    key = key.strip('#')
-                    author[key] = value
-            else:
+            if line.startswith("#index"):
+                author['authorid'] = line[7:].strip()
+            elif line.startswith("#n"):
+                author['name'] = line[3:].strip()
+            elif line.startswith("#a"):
+                author['aff'] = re.sub(r'[^\w.]', '', line[2:].strip())
+            elif line.startswith("#pc"):
+                author['pc'] = line[4:].strip()
+            elif line.startswith("#cn"):
+                author['cn'] = line[4:].strip()
+            elif line.startswith("#hi"):
+                author['hi'] = line[4:].strip()
+            elif line.startswith("#pi"):
+                author['pi'] = line[4:].strip()
+            elif line.startswith("#upi"):
+                author['upi'] = line[5:].strip()
+            elif line.startswith("#t"):
+                author['interest'] = line[3:].strip()
+            elif not line:
                 authors.append(author)
                 author = {}
 
@@ -23,7 +36,6 @@ def process_author_file(input_filename, output_filename):
 
     print(f"Conversion complete. Data saved to '{output_filename}'")
 
-# Define a function to process AMiner-Paper.txt
 def process_paper_file(input_filename, output_filename):
     # Create an empty list to store paper records
     papers = []
@@ -103,15 +115,16 @@ def process_coauthor_file(input_filename, output_filename):
     print(f"Conversion complete. Data saved to '{output_filename}'")
 
 # Define the input and output file names
-input_filename = ''
-output_filename = ''
+input_author_filename = 'AMiner-Author.txt'
+output_author_filename = 'AMiner-Author.json'
 
-# Check the input file name and perform the corresponding action
-if 'AMiner-Author' in input_filename:
-    process_author_file(input_filename, output_filename)
-elif 'AMiner-Paper' in input_filename:
-    process_paper_file(input_filename, output_filename)
-elif 'AMiner-Coauthor' in input_filename:
-    process_coauthor_file(input_filename, output_filename)
-else:
-    print(f"Unsupported file: {input_filename}. No action taken.")
+input_paper_filename = 'AMiner-Paper.txt'
+output_paper_filename = 'AMiner-Paper.json'
+
+input_coauthor_filename = 'AMiner-Coauthor.txt'
+output_coauthor_filename = 'AMiner-Coauthor.json'
+
+# Process and save data as JSON
+process_author_file(input_author_filename, output_author_filename)
+process_paper_file(input_paper_filename, output_paper_filename)
+process_coauthor_file(input_coauthor_filename, output_coauthor_filename)
