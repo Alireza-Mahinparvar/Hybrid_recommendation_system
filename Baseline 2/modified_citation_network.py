@@ -266,14 +266,16 @@ if __name__ =='__main__':
 
     # The graph G now has an 'average_rank' attribute for each node
     # Sort the nodes by the 'average_rank' attribute in descending order (lowest rank first)
-    sorted_nodes = sorted(G.nodes(data=True), key=lambda x: x[1]['average_rank'], reverse=True)
+    sorted_nodes = sorted(G.nodes(data=True), key=lambda x: x[1]['average_rank'])
 
     # Extract the top 10 paper IDs
     top_10_paper_ids = [node[0] for node in sorted_nodes[:10]]
 
     print("Top 10 papers based on average rank:")
     for paper_id in top_10_paper_ids:
-        print(paper_id)
+        paper = papers_collection.find_one({"id": paper_id})
+        titile = paper.get("paper title")
+        print(f"{paper_id} : {titile} ")
 
 
 
