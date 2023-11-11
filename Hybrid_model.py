@@ -4,13 +4,11 @@ import matplotlib.pyplot as plt
 import community
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.data import Data, DataLoader
-from collections import deque
-import pandas as pd
 import re
 import math
 import nltk
+import itertools
+import numpy as np
 
 nltk.download('stopwords')
 from nltk.corpus import stopwords
@@ -18,148 +16,174 @@ import networkx as nx
 
 
 class CitationNetworkBuilder:
-    def __init__(self, papers_dict, reverse_references):
+    def __init__(self, papers_dict):
         self.papers_dict = papers_dict
-        self.reverse_references = reverse_references
 
-    def find_paper_by_id(self, paper_id):
-        return self.papers_dict.get(paper_id)
+    def create_citation_network(self, paper_id, papers_collection, layers_forward=5, layers_backward=5):
+        G = nx.DiGraph()
 
-    def find_citing_papers(self, paper_id):
-        citing_paper_ids = self.reverse_references.get(paper_id, [])
-        return [self.find_paper_by_id(paper_id) for paper_id in citing_paper_ids]
+        def explore_citations(current_paper_id, current_layer, direction='forward'):
+            if current_layer == 0:
+                return
 
-    def build_citation_network(self, paper, forward_levels=5, backward_levels=5):
-        paper_id = paper["id"]
-        citation_network = nx.DiGraph()
-        citation_network.add_node(paper_id, **paper)  # Use paper information as attributes
+            paper = papers_collection.find_one({"id": current_paper_id})
+            if not paper:
+                return
 
-        def explore_citations(paper_id, level, direction):
-            if level < forward_levels and direction == "forward":
-                for cited_paper_id in paper.get("references", []):
-                    if not citation_network.has_node(cited_paper_id):
-                        cited_paper = self.papers_dict.get(cited_paper_id, {})
-                        citation_network.add_node(cited_paper_id, **cited_paper)
-                        citation_network.add_edge(paper_id, cited_paper_id)
-                        explore_citations(cited_paper_id, level + 1, "forward")
+            current_node = paper['id']
+            G.add_node(current_node)
 
-            if level < backward_levels and direction == "backward":
-                for citing_paper_id in self.reverse_references.get(paper_id, []):
-                    if not citation_network.has_node(citing_paper_id):
-                        citing_paper = self.papers_dict.get(citing_paper_id, {})
-                        citation_network.add_node(citing_paper_id, **citing_paper)
-                        citation_network.add_edge(citing_paper_id, paper_id)
-                        explore_citations(citing_paper_id, level + 1, "backward")
+            if direction == 'forward':
+                for cited_paper_id in paper.get('references', []):
+                    cited_paper = papers_collection.find_one({"id": cited_paper_id})
+                    if cited_paper:
+                        cited_node = cited_paper['id']
+                        G.add_edge(current_node, cited_node)
+                        explore_citations(cited_paper_id, current_layer - 1, 'forward')
+            elif direction == 'backward':
+                citing_papers = papers_collection.find({"references": current_paper_id})
+                for citing_paper in citing_papers:
+                    citing_node = citing_paper['id']
+                    G.add_edge(citing_node, current_node)
+                    explore_citations(citing_node, current_layer - 1, 'backward')
 
-        explore_citations(paper_id, 0, "forward")
-        explore_citations(paper_id, 0, "backward")
+        explore_citations(paper_id, layers_forward, 'forward')
+        explore_citations(paper_id, layers_backward, 'backward')
 
-        return citation_network
+        return G
 
-    def bidirectional_layered_layout(self, G, root):
-        layers = {root: 0}
-        queue = deque([root])
+    # Algorithm 2
+    def calculate_bc_cc(self, G):
+        # Initialize BC and CC scores for each paper
+        bc_scores = {paper: 0 for paper in G.nodes}
+        cc_scores = {paper: 0 for paper in G.nodes}
 
-        # Forward layers
-        while queue:
-            node = queue.popleft()
-            for neighbor in G.neighbors(node):
-                if neighbor not in layers:
-                    layers[neighbor] = layers[node] + 1
-                    queue.append(neighbor)
+        # Compute BC and CC scores for all pairs of nodes
+        for X, Y in itertools.combinations(G.nodes, 2):
+            # Papers cited by X and Y for BC
+            citations_X = set(G.successors(X))
+            citations_Y = set(G.successors(Y))
+            # Papers citing X and Y for CC
+            references_X = set(G.predecessors(X))
+            references_Y = set(G.predecessors(Y))
 
-        # Backward layers
-        queue = deque([root])
-        while queue:
-            node = queue.popleft()
-            for predecessor in G.predecessors(node):
-                if predecessor not in layers:
-                    layers[predecessor] = layers[node] - 1
-                    queue.append(predecessor)
+            # Calculate intersection for BC and CC
+            common_citations = citations_X.intersection(citations_Y)
+            common_references = references_X.intersection(references_Y)
 
-        pos = {}
-        for node, layer in layers.items():
-            pos[node] = (layer, hash(node) % 1000)  # Using the hash to distribute nodes vertically
+            # Update BC and CC scores
+            bc_score = len(common_citations)
+            cc_score = len(common_references)
+            bc_scores[X] += bc_score
+            bc_scores[Y] += bc_score
+            cc_scores[X] += cc_score
+            cc_scores[Y] += cc_score
 
-        return pos
+        # Store BC and CC scores as node attributes
+        for paper in G.nodes():
+            G.nodes[paper]['bc_score'] = bc_scores[paper]
+            G.nodes[paper]['cc_score'] = cc_scores[paper]
+        return G
 
-    def bibliographic_coupling(self, G, X, Y):
-        X_references = set(G.neighbors(X))
-        Y_references = set(G.neighbors(Y))
-        return len(X_references.intersection(Y_references))
+    def calculate_candidate_score(self, G):
+        # Iterating over each node to calculate candidate score
+        for node_id in G.nodes:
+            # Retrieve the BC, CC, and distance for the node
+            bc = G.nodes[node_id].get('bc_score', 0)  # Assuming default is 0 if not present
+            cc = G.nodes[node_id].get('cc_score', 0)  # Assuming default is 0 if not present
+            distance = G.nodes[node_id].get('distance')
 
-    def co_citation(self, G, X, Y):
-        X_cited_by = set(G.predecessors(X))
-        Y_cited_by = set(G.predecessors(Y))
-        return len(X_cited_by.intersection(Y_cited_by))
+            # Ensure the distance is not zero to avoid division by zero error
+            if distance is not None and distance != 0:
+                # Calculate candidate score
+                candidate_score = (bc + cc) / distance
+            else:
+                # If the distance is zero, it usually means this is the source node.
+                # You might want to handle this case as per your requirements.
+                candidate_score = float('inf')  # or some other rule, like bc + cc
 
-    def get_top_recommendations(self, paper_of_interest, top_n=10):
-        candidate_papers = []
+            # Set the candidate score as a node attribute
+            nx.set_node_attributes(G, {node_id: {'candidate_score': candidate_score}})
 
-        for other_paper in self.citation_network.nodes:
-            if other_paper != paper_of_interest:
-                if len(self.papers_dict[other_paper].get("references", [])) > 0 or len(
-                        self.find_citing_papers(other_paper)) > 0:
-                    bc = self.bibliographic_coupling(self.citation_network, paper_of_interest, other_paper)
-                    cc = self.co_citation(self.citation_network, paper_of_interest, other_paper)
-                    score = self.candidate_score(self.citation_network, paper_of_interest, other_paper)
-                    if nx.has_path(self.citation_network, source=paper_of_interest, target=other_paper):
-                        distance = nx.shortest_path_length(self.citation_network, source=paper_of_interest,
-                                                           target=other_paper)
-                    else:
-                        distance = float('inf')  # or some other large number indicating a very long distance
+        # Verify by printing the node attributes
+        # for node_id, attributes in G.nodes(data=True):
+        #     print(f"Node {node_id} has a candidate score of {attributes.get('candidate_score')}")
 
-                    candidate_papers.append({
-                        "paper": other_paper,
-                        "bibliographic_coupling": bc,
-                        "co_citation": cc,
-                        "score": score,
-                        "distance": distance,
-                    })
+        return G
 
-        def rank_papers(candidate_papers, top_n=10):
-            G = nx.DiGraph()
-            G.add_edges_from((paper["paper"], paper_of_interest) for paper in candidate_papers)
+    ## Algorithm 3
+    def calculate_centrality(self, G):
+        # Calculate in-degree centrality for each node
+        in_degree_centrality = nx.in_degree_centrality(G)
 
-            degree_centrality = nx.in_degree_centrality(G)
-            closeness_centrality = nx.closeness_centrality(G)
-            betweenness_centrality = nx.betweenness_centrality(G)
-            eigenvector_centrality = nx.eigenvector_centrality(G, max_iter=1000)
+        # Store in-degree centrality as a node attribute
+        nx.set_node_attributes(G, in_degree_centrality, 'in_degree_centrality')
 
-            centrality_data = []
+        # Assuming you have a graph G
+        closeness_centrality = nx.closeness_centrality(G)
 
-            for paper in candidate_papers:
-                paper_id = paper["paper"]
-                degree = degree_centrality[paper_id]
-                closeness = closeness_centrality[paper_id]
-                betweenness = betweenness_centrality[paper_id]
-                eigenvector = eigenvector_centrality[paper_id]
+        # To store the closeness centrality as a node attribute
+        nx.set_node_attributes(G, closeness_centrality, 'closeness_centrality')
 
-                centrality_data.append({
-                    "paper": paper_id,
-                    "degree": degree,
-                    "closeness": closeness,
-                    "betweenness": betweenness,
-                    "eigenvector": eigenvector
-                })
+        betweenness_centrality = nx.betweenness_centrality(G, normalized=True)
 
-            centrality_df = pd.DataFrame(centrality_data)
-            centrality_df["degree_rank"] = centrality_df["degree"].rank(ascending=False)
-            centrality_df["closeness_rank"] = centrality_df["closeness"].rank(ascending=False)
-            centrality_df["betweenness_rank"] = centrality_df["betweenness"].rank(ascending=False)
-            centrality_df["eigenvector_rank"] = centrality_df["eigenvector"].rank(ascending=False)
+        # Store betweenness centrality as a node attribute
+        nx.set_node_attributes(G, betweenness_centrality, 'betweenness_centrality')
 
-            centrality_df["average_rank"] = centrality_df[
-                ["degree_rank", "closeness_rank", "betweenness_rank", "eigenvector_rank"]].mean(axis=1)
-            centrality_df = centrality_df.sort_values("average_rank")
+        # Calculate eigenvector centrality
+        eigenvector_centrality = nx.eigenvector_centrality(G, max_iter=1000)
 
-            top_papers = centrality_df[["paper", "average_rank"]].head(top_n).to_dict("records")
+        # Store eigenvector centrality as a node attribute
+        nx.set_node_attributes(G, eigenvector_centrality, 'eigenvector_centrality')
 
-            return top_papers
+        return G
 
-        # Get top recommendations using the rank_papers method
-        top_recommendations = rank_papers(candidate_papers, top_n)
-        return top_recommendations
+    def scale_and_rank(self, G):
+        # Assuming G is your directed graph with nodes already having 'degree', 'betweenness', 'closeness', 'eigen' attributes
+        # Initialize a dictionary to store the scaled ranks
+        scaled_ranks = {'in_degree_centrality': {}, 'betweenness_centrality': {}, 'closeness_centrality': {},
+                        'eigenvector_centrality': {}}
+
+        # Scale each centrality measure and store the ranks
+        for measure in scaled_ranks.keys():
+            # Get a list of (node, centrality value) for each centrality measure
+            centrality_values = [(node, data[measure]) for node, data in G.nodes(data=True)]
+            # Sort based on centrality value
+            centrality_values.sort(key=lambda x: x[1], reverse=True)
+            # Assign ranks and scale them to (1:50)
+            for rank, (node, _) in enumerate(centrality_values, start=1):
+                scaled_ranks[measure][node] = 1 + 49 * ((rank - 1) / (len(G.nodes()) - 1))
+
+        # Calculate the average rank for each node
+        average_ranks = {}
+        for node in G.nodes():
+            rank_sum = sum(scaled_ranks[measure][node] for measure in scaled_ranks)
+            average_ranks[node] = rank_sum / len(scaled_ranks)
+
+        # Now, you might want to store the average rank back into the graph as a node attribute
+        nx.set_node_attributes(G, average_ranks, 'average_rank')
+
+        return G
+
+    def select_candidates(self, G):
+        # Retrieve all candidate scores that are not infinity.
+        candidate_scores = [data['candidate_score'] for node, data in G.nodes(data=True) if
+                            np.isfinite(data['candidate_score'])]
+
+        # Calculate the 50th percentile as our threshold.
+        threshold = np.percentile(candidate_scores, 50)
+        print(f'Threshold: {threshold}')
+        print(f'Initial number of nodes : {G.number_of_nodes()}')
+        # Now, we filter out nodes that are below our threshold.
+        nodes_to_remove = [node for node, data in G.nodes(data=True) if data['candidate_score'] < threshold]
+
+        # Remove these nodes from the graph.
+        G.remove_nodes_from(nodes_to_remove)
+        print(f'Number of nodes after removing the ones below threshold: {G.number_of_nodes()}')
+        # If you want to keep the removed nodes information, for instance, you can create a subgraph before removing.
+        removed_nodes_subgraph = G.subgraph(nodes_to_remove).copy()
+        # Now G has only the nodes above the threshold.
+        return G
 
 
 from itertools import combinations
@@ -370,34 +394,22 @@ class ContentBasedModule(nn.Module):
 
 
 class HybridRecommendationSystem:
-    def __init__(self, papers_dict, reverse_references, device='cuda'):
+    def __init__(self, papers_dict, papers_collection, device='cuda'):
         self.papers_dict = papers_dict
-        self.reverse_references = reverse_references
+        self.papers_collection = papers_collection
         self.device = device
 
         # Create an instance of the CitationNetworkBuilder class
-        citation_builder = CitationNetworkBuilder(self.papers_dict, self.reverse_references)
-
-        # Call the build_citation_network function
-        print("building citation network")
-        self.citation_network = citation_builder.build_citation_network(self.papers_dict["556798"])
-        adjacency_matrix = nx.adjacency_matrix(self.citation_network, weight='weight')
-        self.citation_similarity_matrix = adjacency_matrix.toarray()
-
-        # Convert the directed citation network into an undirected graph
-        undirected_citation_network = self.citation_network.to_undirected()
-
-        # Apply the Louvain community detection algorithm to the undirected graph
-        print("partition time")
-        self.communities = community.best_partition(undirected_citation_network)
+        self.citation_builder = CitationNetworkBuilder(self.papers_dict)
 
         # Load the pre-trained content-based and collaborative filtering modules
         print("content based module creation")
         self.content_based_module = ContentBasedModule(self.papers_dict).to(self.device)
 
-    def recommend(self, paper_id, top_k=10):
+    def recommend(self, paper_id, top_k=10, penalty=10):
         print("finding subset")
         subset, _ = Crawler(self.papers_dict).get_subset(paper_id)
+        self.citation_network = self.citation_builder.create_citation_network(paper_id, self.papers_collection, layers_forward=5, layers_backward=5)
         print("collab filtering module")
         # Create cooccurred and coccurring matrices
         self.collaborative_filtering_module = CollaborativeFilteringModule(subset).to(self.device)
@@ -409,8 +421,8 @@ class HybridRecommendationSystem:
         for node in self.citation_network.nodes:
             candidates.add(node)
 
-        # generate scores for each candidate
-        hybrid_similarity_scores = []
+        # generate scores for each candidate using baseline 1
+        b1_similarity_scores = []
         for candidate in candidates:
             # Calculate the content-based similarity score
             content_based_similarity_score = self.content_based_module(paper_id, candidate)
@@ -421,14 +433,44 @@ class HybridRecommendationSystem:
             # combine scores
             total_score = content_based_similarity_score + collaborative_filtering_similarity_score
 
-            hybrid_similarity_scores.append((candidate, total_score))
+            b1_similarity_scores.append((candidate, total_score))
 
-        # Sort the papers by hybrid similarity score
-        sorted_papers = sorted(hybrid_similarity_scores, key=lambda x: x[1], reverse=True)
+        # Sort the papers by baseline 1 similarity score
+        b1_sorted_papers = sorted(b1_similarity_scores, key=lambda x: x[1], reverse=True)
 
+        # baseline 2 actions
+        G = self.citation_builder.calculate_bc_cc(self.citation_network)
+        # get distance from paper of interest
+        lengths = nx.single_source_shortest_path_length(G.to_undirected(), paper_id)
+
+        # Store these distances as node attributes in the original directed graph
+        nx.set_node_attributes(G, lengths, 'distance')
+        G = self.citation_builder.calculate_candidate_score(G)
+        G = self.citation_builder.select_candidates(G)
+        # Algorithm 3
+        G = self.citation_builder.calculate_centrality(G)
+        G = self.citation_builder.scale_and_rank(G)
+
+        # The graph G now has an 'average_rank' attribute for each node
+        # Sort the nodes by the 'average_rank' attribute in descending order (lowest rank first)
+        sorted_nodes = G.nodes(data=True)
+
+        combined_dict = {}
+        for i in range(len(b1_sorted_papers)):
+            paper = b1_sorted_papers[i]
+            combined_dict[paper[0]] = {"id": paper[0], "rank": i + penalty}
+        for node in sorted_nodes:
+            if node[0] not in combined_dict:
+                combined_dict[node[0]] = {"id": node[0], "rank": node[1]["average_rank"] + penalty}
+            else:
+                combined_dict[node[0]]["rank"] = combined_dict[node[0]]["rank"] - penalty + node[1]["average_rank"]
+
+
+        sorted_papers = sorted(list(combined_dict.values()), key=lambda x: x["rank"], reverse=False)
         # Get the top-k recommendations based on author ranking
         author_ranking_recommendations = []
-        for paper_index, similarity_score in sorted_papers:
+        for paper in sorted_papers:
+            paper_index = paper["id"]
             if paper_index != paper_id:  # Exclude the target paper itself
                 paper = self.papers_dict.get(paper_index)
                 if paper:
@@ -451,19 +493,12 @@ if __name__ == "__main__":
     # Query the MongoDB collection to retrieve the data
     data = list(collection.find())
 
-    print("dataset refinement")
     # Create a dictionary to store the papers indexed by their ids
     papers_dict = {paper["id"]: paper for paper in data}
-    reverse_references = {}
-    for paper in data:
-        for ref_id in paper.get("references", []):
-            if ref_id not in reverse_references:
-                reverse_references[ref_id] = []
-            reverse_references[ref_id].append(paper["id"])
 
     # Create an instance of the HybridRecommendationSystem class
     print("instantiating model")
-    recommendation_system = HybridRecommendationSystem(papers_dict, reverse_references)
+    recommendation_system = HybridRecommendationSystem(papers_dict, collection)
 
     # Specify the paper_id for which you want to get recommendations
     target_paper_id = "556798"
